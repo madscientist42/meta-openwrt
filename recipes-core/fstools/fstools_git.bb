@@ -9,15 +9,17 @@ HOMEPAGE = "https://git.openwrt.org/?p=project/fstools.git;a=summary"
 LICENSE = "LGPL-2.1 & GPL-2.0 & PD"
 LIC_FILES_CHKSUM = "file://ubi.c;beginline=1;endline=17;md5=8ccc371d64f0b3a8d91065b678dc7095"
 SECTION = "base"
+DEPENDS += "util-linux"
 
-SRCREV = "96415afecef35766332067f4205ef3b2c7561d21"
-SRC_URI = "git://git.openwrt.org/project/fstools.git \
-           file://0001-Define-GLOB_ONLYDIR-if-not-available.patch \
+SRC_URI = "git://git.openwrt.org/project/fstools.git;branch=lede-17.01 \
+	   file://0001-Define-GLOB_ONLYDIR-if-not-available.patch \
           "
 
-inherit cmake pkgconfig
+SRCREV = "37762ff488752c1686b359816aec75831b49c55f"
 
 S = "${WORKDIR}/git"
+
+inherit cmake pkgconfig openwrt
 
 EXTRA_OECMAKE += "${EXTRA_OECONF}"
 
@@ -28,6 +30,11 @@ PACKAGECONFIG ??= "extroot"
 
 PACKAGECONFIG[extroot] = "-DCMAKE_UBIFS_EXTROOT=ON,,libubox uci,"
 
-FILES_SOLIBSDEV = ""
+do_install_append() {
+	install -dm 0755 ${D}/sbin
+	ln -s /usr/sbin/mount_root ${D}/sbin/mount_root
+	ln -s /usr/sbin/jffs2reset ${D}/sbin/jffs2reset
+}
 
 FILES_${PN}  += "${libdir}/*"
+

@@ -1,4 +1,5 @@
 # Copyright (C) 2015 Khem Raj <raj.khem@gmail.com>
+# Copyright (C) 2018 Daniel Dickinson <cshored@thecshore.com>
 # Released under the MIT license (see COPYING.MIT for the terms)
 
 DESCRIPTION = "OpenWrt Network interface configuration daemon"
@@ -8,43 +9,84 @@ LIC_FILES_CHKSUM = "file://main.c;beginline=1;endline=13;md5=572cd47ba0e377b2633
 SECTION = "base"
 DEPENDS = "json-c libubox ubus libnl uci"
 
-SRCREV_netifd = "64a655d8ffa9f0cea1bbdd35cac6b3b99b865270"
-SRCREV_openwrt = "${OPENWRT_SRCREV}"
-
 SRC_URI = "\
-    git://git.openwrt.org/project/netifd.git;name=netifd \
-    git://github.com/openwrt/openwrt.git;name=openwrt;destsuffix=git/openwrt/;branch=chaos_calmer \
-    file://network.config \
-    file://100-Fix-IFF_LOWER_UP-define.patch \
-"
+          git://git.openwrt.org/project/netifd.git;name=netifd \
+          file://100-Fix-IFF_LOWER_UP-define.patch \
+          file://network.config \
+          file://200-buffer-overflow-fix.patch \
+          file://300-replace-is_error-helper-with-NULL-check.patch \
+	  file://0001-resolv.conf.auto-Use-run-instead-of-tmp.patch \
+          "
 
-inherit cmake pkgconfig openwrt
+SRCREV_netifd = "650758b16e5185505a3fbc1307949340af70b611"
 
 S = "${WORKDIR}/git"
 
+inherit cmake pkgconfig openwrt openwrt-services update-alternatives openwrt-base-files
+
+SRCREV_openwrt = "${OPENWRT_SRCREV}"
+
 OECMAKE_C_FLAGS += "-I${STAGING_INCDIR}/libnl3 -Wno-error=cpp"
 
-FILES_${PN} += "\
-    /usr/share/udhcpc/default.script \
-    /lib/netifd/dhcp.script \
-    /lib/netifd/utils.sh \
-    /lib/netifd/netifd-wireless.sh \
-    /lib/netifd/netifd-proto.sh \
-    /lib/netifd/proto/dhcp.sh \
-    /lib/network/config.sh \
-"
+do_configure_prepend () {
+    # replace hardcoded '/lib/' with '${base_libdir}/'
+    grep -rnl "/lib/" ${S}/openwrt/package/network/config/netifd/ | xargs sed -i "s:/lib/:${base_libdir}/:g"
+}
 
 do_install_append() {
-    cp -a ${S}/openwrt/package/network/config/netifd/files/* ${D}
-    cp -a ${S}/scripts/* ${D}/lib/netifd
-    chown -R root:root ${D}/*
+    install -d ${D}${base_libdir}/netifd/
+    # cp because recursive
+    cp -dR --preserve=mode,links ${S}/openwrt/package/network/config/netifd/files/* ${D}/
+    cp -dR --preserve=mode,links ${S}/scripts/* ${D}${base_libdir}/netifd/
 
-    install -Dm 0755 ${WORKDIR}/network.config ${D}${sysconfdir}/config/network
+    install -Dm 0644 ${S}/openwrt/package/base-files/files/lib/functions/network.sh ${D}${base_libdir}/functions/network.sh
+    install -Dm 0755 ${S}/openwrt/package/base-files/files/etc/uci-defaults/12_network-generate-ula ${D}${sysconfdir}/uci-defaults/12_network-generate-ula
 
-    mkdir -p ${D}${sysconfdir}/rc.d
-    ln -s ../init.d/network ${D}${sysconfdir}/rc.d/S20network
-    ln -s ../init.d/network ${D}${sysconfdir}/rc.d/K90network
+    ${@bb.utils.contains('COMBINED_FEATURES', 'wifi', 'install -Dm 0755 ${S}/openwrt/package/base-files/files/sbin/wifi ${D}${base_sbindir}/wifi', '', d)}
 
-    mkdir -p ${D}/sbin
-    ln -s /usr/sbin/netifd ${D}/sbin/netifd
+    install -dm 0755 ${D}${sysconfdir}/config
+
+    # If config_generate is not present we need a default network config
+    ${@bb.utils.contains('IMAGE_INSTALL', 'base-files ', '', 'install -Dm 0644 ${WORKDIR}/network.config ${D}${sysconfdir}/config/network', d)}
+    # FIXME: Handle wireless case without config_generate
+
+    install -dm 0755 ${D}/sbin
+    ln -sf /usr/sbin/netifd ${D}/sbin/netifd
+
+    # Be prepared for both procd and systemd/sysvinit style module loading
+    install -dm 0755 ${D}/etc/modules.d ${D}/etc/modules-load.d
+    echo "bridge" >${D}/etc/modules.d/30-bridge
+    echo "bridge" >${D}/etc/modules-load.d/bridge.conf
 }
+
+ALTERNATIVE_${PN} = "ifup ifdown default.script"
+
+ALTERNATIVE_PRIORITY = "40"
+ALTERNATIVE_PRIORITY_pkg[default.script] = "60"
+ALTERNATIVE_LINK_NAME[ifup] = "${base_sbindir}/ifup"
+ALTERNATIVE_LINK_NAME[ifdown] = "${base_sbindir}/ifdown"
+ALTERNATIVE_LINK_NAME[default.script] = "/usr/share/udhcpc/default.script"
+
+FILES_${PN} += "\
+               /usr/share/udhcpc/default.script* \
+               ${base_libdir}/netifd/dhcp.script \
+               ${base_libdir}/netifd/utils.sh \
+               ${base_libdir}/netifd/netifd-wireless.sh \
+               ${base_libdir}/netifd/netifd-proto.sh \
+               ${base_libdir}/netifd/proto/dhcp.sh \
+               ${base_libdir}/network/config.sh \
+               ${base_libdir}/functions/network.sh \
+               ${@bb.utils.contains('IMAGE_INSTALL', 'base-files ', '', '${sysconfdir}/config/network', d)} \
+               ${@bb.utils.contains('COMBINED_FEATURES', 'wifi', '/sbin/wifi', '', d)} \
+               "
+
+CONFFILES_${PN}_append = "\
+                         ${sysconfdir}/config/network \
+                         $(sysconfdir)/config/wireless \
+	                 "
+
+RDEPENDS_${PN} += "\
+                  bridge-utils \
+                  kernel-module-bridge \
+                  base-files-scripts-openwrt\
+                  "
