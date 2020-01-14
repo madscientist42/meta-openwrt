@@ -4,11 +4,20 @@
 
 FILESEXTRAPATHS_prepend := "${THISDIR}/${PN}:"
 
-EXTRA_OECONF += "--enable-shared --disable-static --with-xtlibdir=/usr/lib/iptables"
+XTLIBDIR = "${libdir}/iptables"
+
+EXTRA_OECONF += "--enable-shared --disable-static --with-xtlibdir=${XTLIBDIR}"
 
 SRC_URI += "file://600-shared-libext.patch"
 
 LDFLAGS += "-fuse-ld=bfd"
+
+python populate_packages_prepend() {
+    modules = do_split_packages(d, '${XTLIBDIR}', 'lib(.*)\.so$', '${PN}-module-%s', '${PN} module %s', extra_depends='', prepend=True)
+    if modules:
+        metapkg = d.getVar('PN') + '-modules'
+        d.appendVar('RDEPENDS_' + metapkg, ' ' + ' '.join(modules))
+}
 
 do_install_append() {
 	install -d ${D}${libdir}
@@ -18,3 +27,5 @@ do_install_append() {
 FILES_${PN} += "${libdir}/*.so"
 FILES_SOLIBSDEV = ""
 INSANE_SKIP_${PN} = "dev-so"
+
+
