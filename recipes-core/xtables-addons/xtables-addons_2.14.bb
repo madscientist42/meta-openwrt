@@ -18,22 +18,29 @@ SRC_URI = " \
           "
 
 
-SRC_URI[md5sum] = "e99ea681b7b3866a581390e1b3ea185e"
-SRC_URI[sha256sum] = "efa62c7df6cd3b82d7195105bf6fe177b605f91f3522e4114d2f4e0ad54320d6"
+SRC_URI[md5sum] = "ebb073119a5f250dbfe6b855fcad56fd"
+SRC_URI[sha256sum] = "d215a9a8b8e66aae04b982fa2e1228e8a71e7dfe42320df99e34e5000cbdf152"
 
 S = "${WORKDIR}/xtables-addons-${PV}"
 
-
 MODULES_MODULE_SYMVERS_LOCATION = "../${BPN}-${PV}/extensions"
 
-EXTRA_OECONF = "--with-kbuild=${STAGING_KERNEL_DIR}"
+BROKEN_PATHS = "-I${S}/extensions/"
+BROKEN_PATHS += "-I${S}/extensions/LUA/lua/"
+BROKEN_PATHS += "-I${S}/extensions/LUA/lua/include/"
 
-EXTRA_OEMAKE = "M=${S}/extentions DESTDIR=${D} V=1"
+GCC9_FAILURES = "-Wno-missing-attributes"
+GCC9_FAILURES += "-Wno-bool-operation"
+GCC9_FAILURES += "-Wno-logical-not-parentheses"
+GCC9_FAILURES += "-Wno-misleading-indentation"
+
+
+EXTRA_OECONF = "--with-kbuild=${STAGING_KERNEL_DIR} --with-xtlibdir=/usr/lib/iptables"
+
+EXTRA_OEMAKE += "ccflags-y='${BROKEN_PATHS} ${GCC9_FAILURES}' M=${S}/extentions DESTDIR=${D} V=1"
 MODULES_INSTALL_TARGET = "install"
 # make_scripts requires kernel source directory to create
 # kernel scripts
 do_make_scripts[depends] += "virtual/kernel:do_shared_workdir"
 
 FILES_${PN} += "${libexecdir}/xtables-addons ${sbindir}/iptaccount ${libdir}/libxt_ACCOUNT_cl.so.* ${libdir}/iptables"
-
-RDEPENDS_${PN} += "perl"
